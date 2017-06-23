@@ -32,20 +32,15 @@ import subprocess
 import sys
 import time
 
-import oauth2client
-
 from gce_api import GceApi
 
 
 # Project-related configuration.
-CLIENT_ID = '{{{{ client_id }}}}'
-CLIENT_SECRET = '{{{{ client_secret }}}}'
-
-CLOUD_STORAGE = 'gs://{{{{ cloud_storage }}}}'
-DEFAULT_PROJECT = '{{{{ project_id }}}}'
-DEFAULT_ZONE = 'us-central1-a'
-DEFAULT_IMAGE = 'projects/debian-cloud/global/images/debian-7-wheezy-v20131120'
-DEFAULT_MACHINE_TYPE = 'n1-standard-2'
+CLOUD_STORAGE = os.environ.get('JM_CLOUD_STORAGE','{{{{ cloud_storage }}}}')
+DEFAULT_PROJECT = os.environ.get('JM_DEFAULT_PROJECT','{{{{ project_id }}}}')
+DEFAULT_ZONE = os.environ.get('JM_DEFAULT_ZONE','us-central1-a')
+DEFAULT_IMAGE = os.environ.get('JM_DEFAULT_IMAGE','projects/debian-cloud/global/images/debian-7-wheezy-v20131120')
+DEFAULT_MACHINE_TYPE = os.environ.get('JM_DEFAULT_MACHINE_TYPE','n1-standard-2')
 
 GCE_STATUS_CHECK_INTERVAL = 3
 
@@ -117,8 +112,7 @@ class JMeterCluster(object):
             '\nPlease specify a project using the --project option.\n\n')
         os.exit(1)
 
-      self.api = GceApi('jmeter_cluster', CLIENT_ID, CLIENT_SECRET,
-                        self.project, self.zone)
+      self.api = GceApi('jmeter_cluster', self.project, self.zone)
     return self.api
 
   def _MakeInstanceName(self, index):
@@ -153,10 +147,8 @@ class JMeterCluster(object):
       ssh_ready = 0
       for index in xrange(size):
         instance_name = self._MakeInstanceName(index)
-        command = ('gcutil ssh --project=%s --zone=%s '
-                   '--ssh_arg "-o ConnectTimeout=10" '
-                   '--ssh_arg "-o StrictHostKeyChecking=no" '
-                   '%s exit') % (self.project, self.zone, instance_name)
+        command = ('gcloud compute ssh --project "%s" --zone "%s" '
+                   '--command="exit" "%s"') % (self.project, self.zone, instance_name)
         logging.debug('SSH availability check command: %s', command)
         if subprocess.call(command, shell=True):
           # Non-zero return code indicates an error.
@@ -203,21 +195,25 @@ class JMeterCluster(object):
       client_rmi_port = 25000
       # Run "gcutil ssh" command to activate SSH port forwarding.
       command = [
-          'gcutil', '--project', project, 'ssh',
-          '--ssh_arg', '-oStrictHostKeyChecking=no',
-          '--ssh_arg', '-L%(server_port)d:127.0.0.1:%(server_port)d',
-          '--ssh_arg', '-L%(server_rmi_port)d:127.0.0.1:%(server_rmi_port)d',
-          '--ssh_arg', '-R%(client_rmi_port)d:127.0.0.1:%(client_rmi_port)d',
-          '--ssh_arg', '-N',
-          '--ssh_arg', '-f',
-          '%(instance_name)s']
-      subprocess.call(
-          ' '.join(command) % {
-              'instance_name': instance_name,
-              'server_port': server_port,
-              'server_rmi_port': server_rmi_port,
-              'client_rmi_port': client_rmi_port,
-          },
+          'gcloud compute ssh ', '--project ', project,
+          ' --ssh-flag=', '"-L %(server_port)d:127.0.0.1:%(server_port)d"',
+          ' --ssh-flag=', '"-L %(server_rmi_port)d:127.0.0.1:%('
+                         'server_rmi_port)d"',
+          ' --ssh-flag=', '"-R %(client_rmi_port)d:127.0.0.1:%('
+                         'client_rmi_port)d"',
+          ' --ssh-flag=', '"-N"',
+          ' --ssh-flag=', '"-f"',
+          ' --zone=', '"%(zone)s"',
+          ' %(instance_name)s']
+      command_str = ''.join(command) % {
+            'instance_name': instance_name,
+            'server_port': server_port,
+            'server_rmi_port': server_rmi_port,
+            'client_rmi_port': client_rmi_port,
+            'zone': self.zone
+            }
+      logging.info("command str is %s " % command_str)
+      subprocess.call(command_str,
           shell=True)
       server_list.append('127.0.0.1:%d' % server_port)
 

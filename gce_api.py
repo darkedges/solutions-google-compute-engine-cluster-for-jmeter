@@ -22,14 +22,7 @@ import os
 import os.path
 import time
 
-import apiclient
-import apiclient.discovery
-import apiclient.errors
-import httplib2
-import oauth2client
-import oauth2client.file
-import oauth2client.tools
-
+import googleapiclient.discovery
 
 class ResourceZoning(object):
   """Constants to indicate which zone type the resource belongs to."""
@@ -41,12 +34,11 @@ class ResourceZoning(object):
 class GceApi(object):
   """Google Client API wrapper for Google Compute Engine."""
 
-  COMPUTE_ENGINE_SCOPE = 'https://www.googleapis.com/auth/compute'
   COMPUTE_ENGINE_API_VERSION = 'v1'
   WAIT_INTERVAL = 3
   MAX_WAIT_TIMES = 100
 
-  def __init__(self, name, client_id, client_secret, project, zone):
+  def __init__(self, name, project, zone):
     """Constructor.
 
     Args:
@@ -57,8 +49,6 @@ class GceApi(object):
       zone: Zone name, e.g. 'us-east-a'
     """
     self._name = name
-    self._client_id = client_id
-    self._client_secret = client_secret
     self._project = project
     self._zone = zone
 
@@ -72,21 +62,7 @@ class GceApi(object):
       Google Client API object for Google Compute Engine.
     """
     # First, check local file for credentials.
-    homedir = os.environ['HOME']
-    storage = oauth2client.file.Storage(
-        os.path.join(homedir, '.%s.credentials' % self._name))
-    credentials = storage.get()
-
-    if not credentials or credentials.invalid:
-      # If local credentials are not valid, do OAuth2 dance.
-      flow = oauth2client.client.OAuth2WebServerFlow(
-          self._client_id, self._client_secret, self.COMPUTE_ENGINE_SCOPE)
-      credentials = oauth2client.tools.run(flow, storage)
-
-    # Set up http with the credentials.
-    authorized_http = credentials.authorize(httplib2.Http())
-    return apiclient.discovery.build(
-        'compute', self.COMPUTE_ENGINE_API_VERSION, http=authorized_http)
+    return googleapiclient.discovery.build('compute', 'v1',cache_discovery=False)
 
   @staticmethod
   def IsNotFoundError(http_error):
@@ -166,7 +142,7 @@ class GceApi(object):
       return self.GetApi().instances().get(
           project=self._project, zone=self._zone,
           instance=instance_name).execute()
-    except apiclient.errors.HttpError as e:
+    except googleapiclient.errors.HttpError as e:
       if self.IsNotFoundError(e):
         return None
       raise
@@ -335,9 +311,8 @@ class GceApi(object):
       HttpError on API error, except for 'resource not found' error.
     """
     try:
-      return self.GetApi().disks().get(
-          project=self._project, zone=self._zone, disk=disk_name).execute()
-    except apiclient.errors.HttpError as e:
+      return self.GetApi().disks().get(project=self._project, zone=self._zone, disk=disk_name).execute()
+    except googleapiclient.errors.HttpError as e:
       if self.IsNotFoundError(e):
         return None
       raise
@@ -353,8 +328,7 @@ class GceApi(object):
     Returns:
       List of compute#disk.
     """
-    result = self.GetApi().disks().list(
-        project=self._project, zone=self._zone, filter=filter_string).execute()
+    result = self.GetApi().disks().list(project=self._project, zone=self._zone, filter=filter_string).execute()
     return result.get('items', [])
 
   def CreateDisk(self, disk_name, size_gb=10, image=None):
